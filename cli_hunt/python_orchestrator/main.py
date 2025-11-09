@@ -33,8 +33,10 @@ session = requests.Session()
 # effective at avoiding blocking than just setting User-Agent headers.
 session = requests.Session(impersonate="chrome110")
 
+
 class SolutionsTracker:
     """Thread-safe counter for solutions in the last rolling hour."""
+
     def __init__(self):
         self._lock = threading.Lock()
         # start of the current 1-hour window
@@ -50,15 +52,17 @@ class SolutionsTracker:
             if now - self.window_start >= timedelta(hours=1):
                 elapsed = (now - self.window_start).total_seconds() / 60
                 old_count = self.count
-                self.count = 0                     # set count back to 0
+                self.count = 0  # set count back to 0
                 self.window_start = now
-                return old_count, elapsed, True    # True = hour just rolled over
+                return old_count, elapsed, True  # True = hour just rolled over
             else:
                 self.count += 1
                 elapsed = (now - self.window_start).total_seconds() / 60
                 return self.count, elapsed, False
 
+
 solutions_tracker = SolutionsTracker()
+
 
 # --- Logging Setup ---
 def setup_logging():
@@ -83,11 +87,11 @@ def fetch_wallet_statistics(address):
         response = session.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
+
         # Extract night_allocation and divide by 1000000
         night_allocation = data.get("local", {}).get("night_allocation", 0)
         total_mined = night_allocation / 1000000
-        
+
         return total_mined
     except Exception as e:
         logging.error(f"Error fetching statistics for {address[:10]}...: {e}")
@@ -220,7 +224,9 @@ class DatabaseManager:
         with self._lock:
             if address in self._db:
                 self._db[address]["total_mined"] = total_mined
-                self._db[address]["stats_updated_at"] = datetime.now(timezone.utc).isoformat()
+                self._db[address]["stats_updated_at"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
 
     def get_wallet_statistics(self, address):
         """Get the total mined amount for a wallet."""
@@ -361,9 +367,7 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
             )
 
         nonce = stdout.strip()
-        num_hashes = int(
-            nonce, 16
-        )
+        num_hashes = int(nonce, 16)
         solved_time = datetime.now(timezone.utc)
         solve_duration = (solved_time - start_time).total_seconds()
         hash_rate = num_hashes / solve_duration if solve_duration > 0 else 0
@@ -371,26 +375,36 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
 
         if hour_rolled:
             # The hour just finished – report the total for the *previous* hour
-            tui_app.post_message(LogMessage("-----------------------------------------------"))
+            tui_app.post_message(
+                LogMessage("-----------------------------------------------")
+            )
             tui_app.post_message(LogMessage(f"Total solutions past hour: {count}"))
-            tui_app.post_message(LogMessage("-----------------------------------------------"))
+            tui_app.post_message(
+                LogMessage("-----------------------------------------------")
+            )
         else:
-            tui_app.post_message(LogMessage("-----------------------------------------------"))
+            tui_app.post_message(
+                LogMessage("-----------------------------------------------")
+            )
             tui_app.post_message(
                 LogMessage(
                     f"Solutions this hour: {count} - Elapsed: {elapsed_minutes:.2f} min"
                 )
             )
-            tui_app.post_message(LogMessage("-----------------------------------------------"))
-        
-        tui_app.post_message(LogMessage(f"-----------------------------------------------"))
-        tui_app.post_message(LogMessage(f"🔢 Found nonce: {nonce} for {c['challengeId']}"))
-        tui_app.post_message(LogMessage(f"⏱️ Solved in {solve_duration:.2f} seconds"))
-        tui_app.post_message(LogMessage(f"⚡ Hashrate: {hash_rate:.2f} H/s")) 
+            tui_app.post_message(
+                LogMessage("-----------------------------------------------")
+            )
 
-        submit_url = (
-            f"https://scavenger.prod.gd.midnighttge.io/solution/{address}/{c['challengeId']}/{nonce}"
+        tui_app.post_message(
+            LogMessage(f"-----------------------------------------------")
         )
+        tui_app.post_message(
+            LogMessage(f"🔢 Found nonce: {nonce} for {c['challengeId']}")
+        )
+        tui_app.post_message(LogMessage(f"⏱️ Solved in {solve_duration:.2f} seconds"))
+        tui_app.post_message(LogMessage(f"⚡ Hashrate: {hash_rate:.2f} H/s"))
+
+        submit_url = f"https://scavenger.prod.gd.midnighttge.io/solution/{address}/{c['challengeId']}/{nonce}"
         submit_response = session.post(submit_url)
         submit_response.raise_for_status()
         validated_time = datetime.now(timezone.utc)
@@ -419,7 +433,9 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
                     "cryptoReceipt": crypto_receipt,
                 }
                 tui_app.post_message(
-                    LogMessage(f"🎉 Successfully validated challenge {c['challengeId']}")
+                    LogMessage(
+                        f"🎉 Successfully validated challenge {c['challengeId']}"
+                    )
                 )
             else:
                 update = {
@@ -435,7 +451,9 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
                     )
                 )
 
-            tui_app.post_message(LogMessage(f"-----------------------------------------------"))
+            tui_app.post_message(
+                LogMessage(f"-----------------------------------------------")
+            )
 
             updated_status = db_manager.update_challenge(
                 address, c["challengeId"], update
@@ -609,7 +627,7 @@ def stats_worker(db_manager, stop_event, interval, tui_app):
         stop_event.wait(interval)
         if stop_event.is_set():
             break
-        
+
         # Update wallet statistics from API
         addresses = db_manager.get_addresses()
         tui_app.post_message(LogMessage("Updating wallet statistics..."))
@@ -617,14 +635,14 @@ def stats_worker(db_manager, stop_event, interval, tui_app):
             total_mined = fetch_wallet_statistics(address)
             if total_mined is not None:
                 db_manager.update_wallet_statistics(address, total_mined)
-        
+
         # Get all stats and calculate total
         all_stats = db_manager.get_all_wallet_statistics()
         total = sum(all_stats.values())
-        
+
         # Send stats update to TUI
         tui_app.post_message(StatsUpdate(all_stats, total))
-        
+
         # Save updated stats to disk
         db_manager.save_to_disk()
     logging.info("Stats updater thread stopped.")
