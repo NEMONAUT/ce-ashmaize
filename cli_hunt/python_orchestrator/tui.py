@@ -70,7 +70,8 @@ class SolutionsTracker:
             if elapsed >= timedelta(hours=1):
                 old_count = self.count
                 self.count = 1
-                self.window_start += timedelta(hours=1)
+                hours_passed = int(elapsed.total_seconds() // 3600)
+                self.window_start += timedelta(hours=hours_passed)
                 return old_count, None, True  # True = hour just rolled over
             else:
                 self.count += 1
