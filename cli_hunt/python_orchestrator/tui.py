@@ -1,7 +1,7 @@
 import logging
 import threading
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -45,6 +45,37 @@ class StatsUpdate(Message):
         super().__init__()
 
 
+class SolutionFound(Message):
+    """Message to signal that a solution was found."""
+
+    pass
+
+
+class SolutionsTracker:
+    """Thread-safe counter for solutions in the last rolling hour."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        # start of the current 1-hour window
+        self.window_start = datetime.now(timezone.utc)
+        self.count = 0
+
+    def increment(self):
+        """Call every time a solution is found. Returns (count, elapsed_minutes)."""
+        with self._lock:
+            now = datetime.now(timezone.utc)
+
+            # If we crossed the hour boundary, reset the counter
+            if now - self.window_start >= timedelta(hours=1):
+                old_count = self.count
+                self.count = 0  # set count back to 0
+                self.window_start = now
+                return old_count, True  # True = hour just rolled over
+            else:
+                self.count += 1
+                return self.count, False
+
+
 # --- The Main TUI Application ---
 
 
@@ -61,6 +92,7 @@ class OrchestratorTUI(App):
         self.worker_functions = worker_functions
         self.worker_args = worker_args
         self.stop_event = threading.Event()
+        self.solutions_tracker = SolutionsTracker()  # Initialize here
 
         # Internal state for the table
         self._addresses = []
@@ -240,6 +272,20 @@ class OrchestratorTUI(App):
         self.log_widget.write_line(
             f"💰 Total mined across all wallets: {self._total_mined:.6f}"
         )
+
+    def on_solution_found(self, message: SolutionFound) -> None:
+        """Handle a solution being found by a worker."""
+        count, hour_rolled = self.solutions_tracker.increment()
+
+        if hour_rolled:
+            # The hour just finished – report the total for the *previous* hour
+            self.post_message(
+                LogMessage("-----------------------------------------------")
+            )
+            self.post_message(LogMessage(f"Total solutions past hour: {count}"))
+            self.post_message(
+                LogMessage("-----------------------------------------------")
+            )
 
     # --- Actions ---
 

@@ -9,7 +9,14 @@ from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 
 from curl_cffi import requests
-from tui import ChallengeUpdate, LogMessage, OrchestratorTUI, RefreshTable, StatsUpdate
+from tui import (
+    ChallengeUpdate,
+    SolutionFound,
+    LogMessage,
+    OrchestratorTUI,
+    RefreshTable,
+    StatsUpdate,
+)
 
 # --- Constants ---
 DB_FILE = "challenges.json"
@@ -32,36 +39,6 @@ session = requests.Session()
 # Using curl_cffi to impersonate a browser's TLS fingerprint. This is more
 # effective at avoiding blocking than just setting User-Agent headers.
 session = requests.Session(impersonate="chrome110")
-
-
-class SolutionsTracker:
-    """Thread-safe counter for solutions in the last rolling hour."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        # start of the current 1-hour window
-        self.window_start = datetime.now(timezone.utc)
-        self.count = 0
-
-    def increment(self):
-        """Call every time a solution is found. Returns (count, elapsed_minutes)."""
-        with self._lock:
-            now = datetime.now(timezone.utc)
-
-            # If we crossed the hour boundary, reset the counter
-            if now - self.window_start >= timedelta(hours=1):
-                elapsed = (now - self.window_start).total_seconds() / 60
-                old_count = self.count
-                self.count = 0  # set count back to 0
-                self.window_start = now
-                return old_count, elapsed, True  # True = hour just rolled over
-            else:
-                self.count += 1
-                elapsed = (now - self.window_start).total_seconds() / 60
-                return self.count, elapsed, False
-
-
-solutions_tracker = SolutionsTracker()
 
 
 # --- Logging Setup ---
@@ -371,29 +348,8 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
         solved_time = datetime.now(timezone.utc)
         solve_duration = (solved_time - start_time).total_seconds()
         hash_rate = num_hashes / solve_duration if solve_duration > 0 else 0
-        count, elapsed_minutes, hour_rolled = solutions_tracker.increment()
 
-        if hour_rolled:
-            # The hour just finished – report the total for the *previous* hour
-            tui_app.post_message(
-                LogMessage("-----------------------------------------------")
-            )
-            tui_app.post_message(LogMessage(f"Total solutions past hour: {count}"))
-            tui_app.post_message(
-                LogMessage("-----------------------------------------------")
-            )
-        else:
-            tui_app.post_message(
-                LogMessage("-----------------------------------------------")
-            )
-            tui_app.post_message(
-                LogMessage(
-                    f"Solutions this hour: {count} - Elapsed: {elapsed_minutes:.2f} min"
-                )
-            )
-            tui_app.post_message(
-                LogMessage("-----------------------------------------------")
-            )
+        tui_app.post_message(SolutionFound())  # Signal that a solution was found
 
         tui_app.post_message(
             LogMessage("-----------------------------------------------")
