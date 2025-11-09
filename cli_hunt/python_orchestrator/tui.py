@@ -68,7 +68,7 @@ class SolutionsTracker:
             # If we crossed the hour boundary, reset the counter
             if now - self.window_start >= timedelta(hours=1):
                 old_count = self.count
-                self.count = 0  # set count back to 0
+                self.count = 1
                 self.window_start = now
                 return old_count, True  # True = hour just rolled over
             else:
