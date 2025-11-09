@@ -33,6 +33,32 @@ session = requests.Session()
 # effective at avoiding blocking than just setting User-Agent headers.
 session = requests.Session(impersonate="chrome110")
 
+class SolutionsTracker:
+    """Thread-safe counter for solutions in the last rolling hour."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        # start of the current 1-hour window
+        self.window_start = datetime.now(timezone.utc)
+        self.count = 0
+
+    def increment(self):
+        """Call every time a solution is found. Returns (count, elapsed_minutes)."""
+        with self._lock:
+            now = datetime.now(timezone.utc)
+
+            # If we crossed the hour boundary, reset the counter
+            if now - self.window_start >= timedelta(hours=1):
+                elapsed = (now - self.window_start).total_seconds() / 60
+                old_count = self.count
+                self.count = 0                     # set count back to 0
+                self.window_start = now
+                return old_count, elapsed, True    # True = hour just rolled over
+            else:
+                self.count += 1
+                elapsed = (now - self.window_start).total_seconds() / 60
+                return self.count, elapsed, False
+
+solutions_tracker = SolutionsTracker()
 
 # --- Logging Setup ---
 def setup_logging():
@@ -335,25 +361,41 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
             )
 
         nonce = stdout.strip()
-        solved_time = datetime.now(timezone.utc)
-        solve_duration = (solved_time - start_time).total_seconds()
         num_hashes = int(
             nonce, 16
-        )  # Assuming nonce is a hex string representing the number of hashes
-        hash_rate = num_hashes / solve_duration if solve_duration > 0 else 0
-
-        tui_app.post_message(
-            LogMessage(
-                f"Found nonce: {nonce} for {c['challengeId']} (Solve time: {solve_duration:.2f}s, Hash rate: {hash_rate:.2f} H/s)"
-            )
         )
+        solved_time = datetime.now(timezone.utc)
+        solve_duration = (solved_time - start_time).total_seconds()
+        hash_rate = num_hashes / solve_duration if solve_duration > 0 else 0
+        count, elapsed_minutes, hour_rolled = solutions_tracker.increment()
 
-        submit_url = f"https://scavenger.prod.gd.midnighttge.io/solution/{address}/{c['challengeId']}/{nonce}"
+        if hour_rolled:
+            # The hour just finished – report the total for the *previous* hour
+            tui_app.post_message(LogMessage("-----------------------------------------------"))
+            tui_app.post_message(LogMessage(f"Total solutions past hour: {count}"))
+            tui_app.post_message(LogMessage("-----------------------------------------------"))
+        else:
+            tui_app.post_message(LogMessage("-----------------------------------------------"))
+            tui_app.post_message(
+                LogMessage(
+                    f"Solutions this hour: {count} - Elapsed: {elapsed_minutes:.2f} min"
+                )
+            )
+            tui_app.post_message(LogMessage("-----------------------------------------------"))
+        
+        tui_app.post_message(LogMessage(f"-----------------------------------------------"))
+        tui_app.post_message(LogMessage(f"🔢 Found nonce: {nonce} for {c['challengeId']}"))
+        tui_app.post_message(LogMessage(f"⏱️ Solved in {solve_duration:.2f} seconds"))
+        tui_app.post_message(LogMessage(f"⚡ Hashrate: {hash_rate:.2f} H/s")) 
+
+        submit_url = (
+            f"https://scavenger.prod.gd.midnighttge.io/solution/{address}/{c['challengeId']}/{nonce}"
+        )
         submit_response = session.post(submit_url)
         submit_response.raise_for_status()
         validated_time = datetime.now(timezone.utc)
         tui_app.post_message(
-            LogMessage(f"Solution submitted successfully for {c['challengeId']}")
+            LogMessage(f"✅ Solution submitted successfully for {c['challengeId']}")
         )
 
         try:
@@ -377,7 +419,7 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
                     "cryptoReceipt": crypto_receipt,
                 }
                 tui_app.post_message(
-                    LogMessage(f"Successfully validated challenge {c['challengeId']}")
+                    LogMessage(f"🎉 Successfully validated challenge {c['challengeId']}")
                 )
             else:
                 update = {
@@ -392,6 +434,8 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
                         f"Submission for {c['challengeId']} OK but no crypto_receipt."
                     )
                 )
+
+            tui_app.post_message(LogMessage(f"-----------------------------------------------"))
 
             updated_status = db_manager.update_challenge(
                 address, c["challengeId"], update
@@ -420,7 +464,7 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
         db_manager.update_challenge(address, c["challengeId"], {"status": "available"})
         tui_app.post_message(ChallengeUpdate(address, c["challengeId"], "available"))
     except requests.exceptions.RequestException as e:  # ty: ignore
-        msg = f"Error submitting solution for {c['challengeId']}: {e}"
+        msg = f"⚠️ Error submitting solution for {c['challengeId']}: {e}"
         tui_app.post_message(LogMessage(msg))
         db_manager.update_challenge(
             address, c["challengeId"], {"status": "submission_error"}
