@@ -64,16 +64,17 @@ class SolutionsTracker:
         """Call every time a solution is found. Returns (count, elapsed_minutes)."""
         with self._lock:
             now = datetime.now(timezone.utc)
+            elapsed = now - self.window_start
 
             # If we crossed the hour boundary, reset the counter
-            if now - self.window_start >= timedelta(hours=1):
+            if elapsed >= timedelta(hours=1):
                 old_count = self.count
                 self.count = 1
-                self.window_start = now
-                return old_count, True  # True = hour just rolled over
+                self.window_start += timedelta(hours=1)
+                return old_count, None, True  # True = hour just rolled over
             else:
                 self.count += 1
-                return self.count, False
+                return self.count, elapsed, False
 
 
 # --- The Main TUI Application ---
@@ -275,7 +276,8 @@ class OrchestratorTUI(App):
 
     def on_solution_found(self, message: SolutionFound) -> None:
         """Handle a solution being found by a worker."""
-        count, hour_rolled = self.solutions_tracker.increment()
+        count, elapsed, hour_rolled = self.solutions_tracker.increment()
+        elapsed_minutes = elapsed.total_seconds() / 60
 
         if hour_rolled:
             # The hour just finished – report the total for the *previous* hour
@@ -285,6 +287,12 @@ class OrchestratorTUI(App):
             self.post_message(LogMessage(f"Total solutions past hour: {count}"))
             self.post_message(
                 LogMessage("-----------------------------------------------")
+            )
+        else:
+            self.post_message(
+                LogMessage(
+                    f"Solutions this hour: {count} - Elapsed: {elapsed_minutes:.2f} min"
+                )
             )
 
     # --- Actions ---
