@@ -396,7 +396,7 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
             )
 
         tui_app.post_message(
-            LogMessage(f"-----------------------------------------------")
+            LogMessage("-----------------------------------------------")
         )
         tui_app.post_message(
             LogMessage(f"🔢 Found nonce: {nonce} for {c['challengeId']}")
@@ -452,7 +452,7 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
                 )
 
             tui_app.post_message(
-                LogMessage(f"-----------------------------------------------")
+                LogMessage("-----------------------------------------------")
             )
 
             updated_status = db_manager.update_challenge(
