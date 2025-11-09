@@ -349,8 +349,6 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
         solve_duration = (solved_time - start_time).total_seconds()
         hash_rate = num_hashes / solve_duration if solve_duration > 0 else 0
 
-        tui_app.post_message(SolutionFound())  # Signal that a solution was found
-
         tui_app.post_message(
             LogMessage("-----------------------------------------------")
         )
@@ -410,6 +408,7 @@ def _solve_one_challenge(db_manager, tui_app, stop_event, address, challenge):
             tui_app.post_message(
                 LogMessage("-----------------------------------------------")
             )
+            tui_app.post_message(SolutionFound())
 
             updated_status = db_manager.update_challenge(
                 address, c["challengeId"], update
